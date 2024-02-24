@@ -11,11 +11,12 @@ type OpCode int
 
 const (
 	Op_ListCommands OpCode = iota
+	// call [id] Calls an
 	Op_Call
+	// ld [i64 sleb] loads an int64
 	Op_Ld_i64
-	Op_Ld_String
-	Op_Ld_F64
-	Op_Ld_U8_Array
+	// ld [generic] loads anything
+	Op_Ld
 	Op_Pop
 	Op_Dup
 	Op_Return
@@ -91,6 +92,17 @@ var SubCommand = Command{
 	Name:      "-",
 	Arguments: []Type{Type_I64, Type_I64},
 	Func:      Sub,
+}
+
+func Concat(a string, b string) string {
+	return fmt.Sprintf("%s%s", a, b)
+}
+
+var ConcatCommand = Command{
+	id:        2,
+	Name:      "..",
+	Arguments: []Type{Type_String, Type_String},
+	Func:      Concat,
 }
 
 func writer_i64_sleb(inValue int64, w *bufio.Writer) {
@@ -239,7 +251,7 @@ func dynamicInvoke(function interface{}, args []interface{}) (result []interface
 }
 
 func eval_stream(read_stream io.Reader, writer_stream io.Writer) {
-	commands := []Command{AddCommand, SubCommand}
+	commands := []Command{AddCommand, SubCommand, ConcatCommand}
 	reader := bufio.NewReader(read_stream)
 	writer := bufio.NewWriter(writer_stream)
 	stack := Stack{}
@@ -260,12 +272,19 @@ func eval_stream(read_stream io.Reader, writer_stream io.Writer) {
 		case Op_Ld_i64:
 			op := read_sleb64(reader)
 			stack.Push(op)
+		case Op_Ld:
+			op := read_from_stream(reader)
+			stack.Push(op)
 		case Op_Dup:
 			stack.Push(stack.Peek())
 		case Op_Pop:
 			stack.Pop()
 		case Op_Call:
 			op := read_sleb64(reader)
+			if len(commands) < int(op) {
+				write_to_stream(fmt.Errorf("no such opcode: %v", op), writer)
+				return
+			}
 			cmd := commands[op]
 			arglen := len(cmd.Arguments)
 			args := make([]interface{}, arglen)

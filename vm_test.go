@@ -143,14 +143,31 @@ func load_test_sub(writer *bufio.Writer) {
 	writer.WriteByte(byte(Op_Return))
 	writer.Flush()
 }
-func load_test_err_call(writer *bufio.Writer) {
-	writer.WriteByte(byte(Op_Ld_String))
-	writer_i64_sleb(50, writer)
-	writer.WriteByte(byte(Op_Ld_String))
-	writer_i64_sleb(120, writer)
+func load_test_concat_call(writer *bufio.Writer) {
+	writer.WriteByte(byte(Op_Ld))
+	write_to_stream("456", writer)
+	writer.WriteByte(byte(Op_Ld))
+	write_to_stream("123", writer)
 	writer.WriteByte(byte(Op_Call))
-	writer.WriteByte(1)
+	writer.WriteByte(2)
 	writer.WriteByte(byte(Op_Return))
+	writer.Flush()
+}
+func load_test_error_call(writer *bufio.Writer) {
+	writer.WriteByte(byte(Op_Ld))
+	write_to_stream("456", writer)
+	writer.WriteByte(byte(Op_Ld))
+	write_to_stream("123", writer)
+
+	writer.WriteByte(byte(Op_Call))
+	writer.WriteByte(0)
+	writer.WriteByte(byte(Op_Return))
+	writer.Flush()
+}
+func load_test_err_call2(writer *bufio.Writer) {
+	writer.WriteByte(byte(Op_Ld))
+	writer_i64_sleb(50, writer)
+	writer.WriteByte(byte(Op_Call))
 	writer.Flush()
 }
 
@@ -163,9 +180,12 @@ func TestEvalStream3(t *testing.T) {
 	}{
 		{name: "AddTest", function: load_test_add, want: int64(220)},
 		{name: "SubTest", function: load_test_sub, want: int64(70)},
-		{name: "ErrCall", function: load_test_err_call, want: fmt.Errorf("reflect: Call using zero Value argument")},
+		{name: "ConcatTest", function: load_test_concat_call, want: "123456"},
+		{name: "ErrCall", function: load_test_error_call, want: fmt.Errorf("reflect: Call using string as type int64")},
+		{name: "ErrCall2", function: load_test_err_call2, want: fmt.Errorf("stack exhausted")},
 	}
 	for _, tc := range testCases {
+		fmt.Printf("test case: %s\n", tc.name)
 		var b bytes.Buffer
 		var b2 bytes.Buffer
 
