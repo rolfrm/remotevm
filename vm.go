@@ -19,12 +19,13 @@ const (
 	Op_Pop
 	Op_Dup
 	Op_Return
+	Op_Forward
 )
 
 type Type byte
 
 const (
-	Type_I64 = iota
+	Type_I64 Type = iota
 	Type_F64
 	Type_String
 	Type_U8_Array
@@ -33,7 +34,35 @@ const (
 	Type_Command
 	Type_Command_Array
 	Type_Nothing
+	Type_Error
 )
+
+func (t Type) String() string {
+	switch t {
+	case Type_I64:
+		return "Type_I64"
+	case Type_F64:
+		return "Type_F64"
+	case Type_String:
+		return "Type_String"
+	case Type_U8_Array:
+		return "Type_U8_Array"
+	case Type_Type_Array:
+		return "Type_Type_Array"
+	case Type_Object:
+		return "Type_Object"
+	case Type_Command:
+		return "Type_Command"
+	case Type_Command_Array:
+		return "Type_Command_Array"
+	case Type_Nothing:
+		return "Type_Nothing"
+	case Type_Error:
+		return "Type_Error"
+	default:
+		return fmt.Sprintf("Unknown Type: %d", t)
+	}
+}
 
 type Command struct {
 	id        int64
@@ -111,32 +140,35 @@ func write_to_stream(value interface{}, writer *bufio.Writer) {
 
 	switch obj := value.(type) {
 	case Command:
-		writer.WriteByte(Type_Command)
+		writer.WriteByte(byte(Type_Command))
 		write_to_stream(obj.id, writer)
 		write_to_stream(obj.Name, writer)
 		write_to_stream(obj.Arguments, writer)
 	case []Command:
-		writer.WriteByte(Type_Command_Array)
+		writer.WriteByte(byte(Type_Command_Array))
 		writer_i64_sleb(int64(len(obj)), writer)
 		for i := range obj {
 			write_to_stream(obj[i], writer)
 		}
 	case string:
-		writer.WriteByte(Type_String)
+		writer.WriteByte(byte(Type_String))
 		bytes := []byte(obj)
 		writer_i64_sleb(int64(len(bytes)), writer)
 		writer.Write(bytes)
 	case int64:
-		writer.WriteByte(Type_I64)
+		writer.WriteByte(byte(Type_I64))
 		writer_i64_sleb(obj, writer)
 	case []Type:
-		writer.WriteByte(Type_Type_Array)
+		writer.WriteByte(byte(Type_Type_Array))
 		writer.WriteByte(byte(len(obj)))
-		fmt.Printf("%v ", obj)
 		for i := range obj {
-
 			writer.WriteByte(byte(obj[i]))
 		}
+	case error:
+		writer.WriteByte(byte(Type_Error))
+		write_to_stream(obj.Error(), writer)
+	case nil:
+		writer.WriteByte(byte(Type_Nothing))
 
 	default:
 		panic(fmt.Sprintf("unsupported type! %v", obj))
@@ -148,15 +180,38 @@ func read_from_stream(reader *bufio.Reader) interface{} {
 	if e != nil {
 		panic(e.Error())
 	}
-	switch Type(t) {
+	t2 := Type(t)
+	switch t2 {
 	case Type_I64:
 		v := read_sleb64(reader)
 		return v
+	case Type_String:
+		count := int(read_sleb64(reader))
+		arr := make([]byte, count)
+		cnt, err := reader.Read(arr)
+		if err != nil {
+			panic(err.Error())
+		}
+		if cnt != count {
+			panic("unable to read expected number of bytes")
+		}
+		return string(arr)
+	case Type_Error:
+		str, e := read_from_stream(reader).(string)
+		if !e {
+			panic("unexpected type")
+		}
+		return fmt.Errorf(str)
 	}
-	return nil
+	panic(fmt.Sprintf("cannot read type: %v", t2))
 }
 
 func dynamicInvoke(function interface{}, args []interface{}) (result []interface{}, err error) {
+	defer func() {
+		if err2 := recover(); err2 != nil {
+			err = fmt.Errorf("%v", err2)
+		}
+	}()
 	// Get the reflect.Value of the function
 	funcValue := reflect.ValueOf(function)
 
@@ -191,6 +246,7 @@ func eval_stream(read_stream io.Reader, writer_stream io.Writer) {
 	for {
 		b, e := reader.ReadByte()
 		if e != nil {
+
 			break
 		}
 
@@ -219,14 +275,17 @@ func eval_stream(read_stream io.Reader, writer_stream io.Writer) {
 
 			result, e := dynamicInvoke(cmd.Func, args)
 			if e != nil {
-				panic(e.Error())
+				write_to_stream(e, writer)
+				break
 			}
 			for x := range result {
 				stack.Push(result[x])
 
 			}
-
+		case Op_Forward:
+			write_to_stream(fmt.Errorf("not implemented"), writer)
 		}
+
 	}
 
 }

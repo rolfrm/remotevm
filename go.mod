@@ -2,7 +2,10 @@ module whats
 
 go 1.21.3
 
-require github.com/quic-go/quic-go v0.41.0
+require (
+	github.com/quic-go/quic-go v0.41.0
+	golang.org/x/tools v0.9.1
+)
 
 require (
 	github.com/go-task/slim-sprig v0.0.0-20230315185526-52ccab3ef572 // indirect
@@ -14,5 +17,4 @@ require (
 	golang.org/x/mod v0.11.0 // indirect
 	golang.org/x/net v0.19.0 // indirect
 	golang.org/x/sys v0.15.0 // indirect
-	golang.org/x/tools v0.9.1 // indirect
 )

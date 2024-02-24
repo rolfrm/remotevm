@@ -80,12 +80,12 @@ func (cli *Client) OpenStream() (quic.Stream, error) {
 }
 
 func new_client() Client {
-	x := emptyCtx{}
+	ctx := emptyCtx{}
 
 	tlscfg := tls.Config{InsecureSkipVerify: true}
 	quiccfg := quic.Config{}
 
-	con, err := quic.DialAddr(&x, addr, &tlscfg, &quiccfg)
+	con, err := quic.DialAddr(&ctx, addr, &tlscfg, &quiccfg)
 
 	if err != nil {
 		panic(err.Error())
