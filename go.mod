@@ -1,4 +1,4 @@
-module whats
+module github.com/rolfrm/remotevm
 
 go 1.21.3
 

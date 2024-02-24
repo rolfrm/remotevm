@@ -1,4 +1,4 @@
-package main
+package remotevm
 
 type Stack struct {
 	items []interface{}

@@ -1,4 +1,4 @@
-package main
+package remotevm
 
 import (
 	"bufio"
@@ -213,8 +213,19 @@ func load_test_err_call3(writer *bufio.Writer) {
 
 	writer.Flush()
 }
+func load_test_write_read_bytes(thing interface{}, writer *bufio.Writer) {
+	writer.WriteByte(byte(Op_Ld))
+	write_to_stream(thing, writer)
+	writer.WriteByte(byte(Op_Return))
+	writer.Flush()
+}
 
 func TestEvalStream3(t *testing.T) {
+
+	numbers := make([]byte, 10)
+	for i := range numbers {
+		numbers[i] = byte(i)
+	}
 
 	testCases := []struct {
 		name     string
@@ -224,6 +235,9 @@ func TestEvalStream3(t *testing.T) {
 		{name: "AddTest", function: load_test_add, want: int64(220)},
 		{name: "SubTest", function: load_test_sub, want: int64(70)},
 		{name: "ConcatTest", function: load_test_concat_call, want: "123456"},
+		{name: "WriteReadf64", function: func(w *bufio.Writer) { load_test_write_read_bytes(3.14, w) }, want: 3.14},
+
+		{name: "WriteReadBytes", function: func(w *bufio.Writer) { load_test_write_read_bytes(numbers, w) }, want: numbers},
 		{name: "ErrCall", function: load_test_error_call, want: fmt.Errorf("reflect: Call using string as type int64")},
 		{name: "ErrCall2", function: load_test_err_call2, want: fmt.Errorf("cannot read type: Unknown Type: 50")},
 		{name: "ErrCall3", function: load_test_err_call3, want: fmt.Errorf("stack exhausted")},
@@ -241,16 +255,12 @@ func TestEvalStream3(t *testing.T) {
 
 		buf2 := bufio.NewReader(&b2)
 		result, _ := read_from_stream(buf2)
-		if err2, ok := tc.want.(error); ok {
-			if err_result, ok2 := result.(error); ok2 {
-				if err2.Error() != err_result.Error() {
-					t.Errorf("expected same error, got: %v, want: %v.", result, tc.want)
-				}
-			} else {
-				panic("unexpected result")
-			}
 
-		} else if result != tc.want {
+		wantString := fmt.Sprintf("%v", tc.want)
+		resultString := fmt.Sprintf("%v", result)
+		fmt.Printf(" %v   %v\n", wantString, resultString)
+
+		if wantString != resultString {
 			t.Errorf("eval_stream3 was incorrect, got: %v, want: %v.", result, tc.want)
 		}
 	}
@@ -263,7 +273,7 @@ func TestThroughQuic(t *testing.T) {
 	go server.Serve()
 	defer func() { server.End <- true }()
 
-	cli := new_client()
+	cli := NewClient(server.Address)
 	str, err := cli.OpenStream()
 	if err != nil {
 		t.Error(err.Error())

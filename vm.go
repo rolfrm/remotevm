@@ -1,10 +1,16 @@
-package main
+package remotevm
 
 import (
 	"bufio"
+	"crypto/tls"
+	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 	"reflect"
+	"time"
+
+	"github.com/quic-go/quic-go"
 )
 
 type OpCode int
@@ -77,10 +83,11 @@ type Server struct {
 	End      chan bool
 	KeyFile  string
 	CertFile string
+	Address  string
 }
 
 func ServerNew() *Server {
-	return &Server{Commands: make([]Command, 0), End: make(chan bool), KeyFile: "server.key", CertFile: "server.crt"}
+	return &Server{Commands: make([]Command, 0), End: make(chan bool), KeyFile: "server.key", CertFile: "server.crt", Address: "localhost:42424"}
 }
 
 func writer_i64_sleb(inValue int64, w *bufio.Writer) {
@@ -148,6 +155,12 @@ func write_to_stream(value interface{}, writer *bufio.Writer) {
 	case int64:
 		writer.WriteByte(byte(Type_I64))
 		writer_i64_sleb(obj, writer)
+	case float64:
+		writer.WriteByte(byte(Type_F64))
+		bits := math.Float64bits(obj)
+		bytes := make([]byte, 8)
+		binary.BigEndian.PutUint64(bytes, bits)
+		writer.Write(bytes)
 	case []Type:
 		writer.WriteByte(byte(Type_Type_Array))
 		writer.WriteByte(byte(len(obj)))
@@ -159,6 +172,10 @@ func write_to_stream(value interface{}, writer *bufio.Writer) {
 		write_to_stream(obj.Error(), writer)
 	case nil:
 		writer.WriteByte(byte(Type_Nothing))
+	case []byte:
+		writer.WriteByte(byte(Type_U8_Array))
+		writer_i64_sleb(int64(len(obj)), writer)
+		writer.Write(obj)
 
 	default:
 		panic(fmt.Sprintf("unsupported type! %v", obj))
@@ -174,6 +191,34 @@ func read_from_stream(reader *bufio.Reader) (interface{}, error) {
 	switch t2 {
 	case Type_I64:
 		return read_sleb64(reader)
+	case Type_F64:
+		bytes := make([]byte, 8)
+		r, e := reader.Read(bytes)
+		if e != nil {
+			return nil, e
+		}
+		if r != 8 {
+			return nil, fmt.Errorf("expected 8 bytes read")
+		}
+
+		//binary.BigEndian.PutUint64(bytes, bits)
+		bits := binary.BigEndian.Uint64(bytes)
+		return math.Float64frombits(bits), nil
+	case Type_U8_Array:
+		count0, e := read_sleb64(reader)
+		if e != nil {
+			return nil, e
+		}
+		count := int(count0)
+		arr := make([]byte, count)
+		i, err := reader.Read(arr)
+		if err != nil {
+			return nil, err
+		}
+		if i != count {
+			return nil, fmt.Errorf("expected to read %v bytes", count)
+		}
+		return arr, nil
 
 	case Type_String:
 		count0, e := read_sleb64(reader)
@@ -311,4 +356,88 @@ func eval_stream(commands []Command, read_stream io.Reader, writer_stream io.Wri
 
 	}
 
+}
+
+type emptyCtx struct{}
+
+func (emptyCtx) Deadline() (deadline time.Time, ok bool) {
+	return
+}
+
+func (emptyCtx) Done() <-chan struct{} {
+	return nil
+}
+
+func (emptyCtx) Err() error {
+	return nil
+}
+
+func (emptyCtx) Value(key any) any {
+	return nil
+}
+
+func (s *Server) go_con_quic(con quic.Connection) {
+	fmt.Println("Got connection to client!")
+	str, err := con.AcceptStream(con.Context())
+	if err != nil {
+		panic(err.Error())
+	}
+	eval_stream(s.Commands, str, str)
+}
+
+func (s *Server) Serve() {
+	keyFile := s.KeyFile
+	certFile := s.CertFile
+	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+	tlscfg := tls.Config{
+		InsecureSkipVerify: true,
+		Certificates:       []tls.Certificate{cert},
+	}
+
+	listener, err := quic.ListenAddr(s.Address, &tlscfg, nil)
+	if err != nil {
+		panic(err.Error())
+		return
+	}
+
+	defer listener.Close()
+	go func() {
+		<-s.End
+		listener.Close()
+	}()
+	x := emptyCtx{}
+	for {
+		fmt.Println("Listening for connection")
+		con, err := listener.Accept(&x)
+		if err != nil {
+			panic(err.Error())
+		}
+		fmt.Println("Got connection")
+		go s.go_con_quic(con)
+
+	}
+
+}
+
+type Client struct {
+	con quic.Connection
+}
+
+func (cli *Client) OpenStream() (quic.Stream, error) {
+	return cli.con.OpenStream()
+}
+
+func NewClient(addr string) Client {
+	ctx := emptyCtx{}
+
+	tlscfg := tls.Config{InsecureSkipVerify: true}
+	quiccfg := quic.Config{}
+
+	con, err := quic.DialAddr(&ctx, addr, &tlscfg, &quiccfg)
+
+	if err != nil {
+		panic(err.Error())
+	}
+
+	return Client{con}
 }
