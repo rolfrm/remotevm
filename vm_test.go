@@ -15,6 +15,41 @@ func (t *TestStream) Close() error {
 	return nil
 }
 
+func Add(a int64, b int64) int64 {
+	return a + b
+}
+
+var AddCommand = Command{
+	id:        0,
+	Name:      "+",
+	Arguments: []Type{Type_I64, Type_I64},
+	Func:      Add,
+}
+
+func Sub(a int64, b int64) int64 {
+	return a - b
+}
+
+var SubCommand = Command{
+	id:        1,
+	Name:      "-",
+	Arguments: []Type{Type_I64, Type_I64},
+	Func:      Sub,
+}
+
+func Concat(a string, b string) string {
+	return fmt.Sprintf("%s%s", a, b)
+}
+
+var ConcatCommand = Command{
+	id:        2,
+	Name:      "..",
+	Arguments: []Type{Type_String, Type_String},
+	Func:      Concat,
+}
+
+var commands []Command = []Command{AddCommand, SubCommand, ConcatCommand}
+
 func TestWriteToStream(t *testing.T) {
 	testCases := []struct {
 		name  string
@@ -88,7 +123,7 @@ func TestEvalStream(t *testing.T) {
 	writer.WriteByte(byte(Op_Return))
 	writer.Flush()
 
-	eval_stream(&b, writer2)
+	eval_stream(commands, &b, writer2)
 	writer2.Flush()
 
 	// Now the buffer should contain the returned value
@@ -114,7 +149,7 @@ func TestEvalStream2(t *testing.T) {
 	writer.WriteByte(byte(Op_Return))
 	writer.Flush()
 
-	eval_stream(&b, writer2)
+	eval_stream(commands, &b, writer2)
 	writer2.Flush()
 	fmt.Printf(" >>  %v", b2.Bytes())
 
@@ -201,7 +236,7 @@ func TestEvalStream3(t *testing.T) {
 		writer := bufio.NewWriter(&b)
 		writer2 := bufio.NewWriter(&b2)
 		tc.function(writer)
-		eval_stream(&b, writer2)
+		eval_stream(commands, &b, writer2)
 		writer2.Flush()
 
 		buf2 := bufio.NewReader(&b2)
@@ -223,9 +258,10 @@ func TestEvalStream3(t *testing.T) {
 }
 
 func TestThroughQuic(t *testing.T) {
-	end := make(chan bool)
-	go serve_quic(end)
-	defer func() { end <- true }()
+	server := ServerNew()
+	server.Commands = commands
+	go server.Serve()
+	defer func() { server.End <- true }()
 
 	cli := new_client()
 	str, err := cli.OpenStream()

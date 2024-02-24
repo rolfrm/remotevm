@@ -28,18 +28,18 @@ func (emptyCtx) Value(key any) any {
 	return nil
 }
 
-func go_con_quic(con quic.Connection) {
+func (s *Server) go_con_quic(con quic.Connection) {
 	fmt.Println("Got connection to client!")
 	str, err := con.AcceptStream(con.Context())
 	if err != nil {
 		panic(err.Error())
 	}
-	eval_stream(str, str)
+	eval_stream(s.Commands, str, str)
 }
 
-func serve_quic(end chan bool) {
-	keyFile := "server.key"
-	certFile := "server.crt"
+func (s *Server) Serve() {
+	keyFile := s.KeyFile
+	certFile := s.CertFile
 	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 	tlscfg := tls.Config{
 		InsecureSkipVerify: true,
@@ -54,7 +54,7 @@ func serve_quic(end chan bool) {
 
 	defer listener.Close()
 	go func() {
-		<-end
+		<-s.End
 		listener.Close()
 	}()
 	x := emptyCtx{}
@@ -65,7 +65,7 @@ func serve_quic(end chan bool) {
 			panic(err.Error())
 		}
 		fmt.Println("Got connection")
-		go go_con_quic(con)
+		go s.go_con_quic(con)
 
 	}
 
@@ -95,6 +95,6 @@ func new_client() Client {
 }
 
 func main() {
-	end := make(chan bool)
-	serve_quic(end)
+	server := ServerNew()
+	server.Serve()
 }

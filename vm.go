@@ -72,37 +72,15 @@ type Command struct {
 	Func      interface{}
 }
 
-func Add(a int64, b int64) int64 {
-	return a + b
+type Server struct {
+	Commands []Command
+	End      chan bool
+	KeyFile  string
+	CertFile string
 }
 
-var AddCommand = Command{
-	id:        0,
-	Name:      "+",
-	Arguments: []Type{Type_I64, Type_I64},
-	Func:      Add,
-}
-
-func Sub(a int64, b int64) int64 {
-	return a - b
-}
-
-var SubCommand = Command{
-	id:        1,
-	Name:      "-",
-	Arguments: []Type{Type_I64, Type_I64},
-	Func:      Sub,
-}
-
-func Concat(a string, b string) string {
-	return fmt.Sprintf("%s%s", a, b)
-}
-
-var ConcatCommand = Command{
-	id:        2,
-	Name:      "..",
-	Arguments: []Type{Type_String, Type_String},
-	Func:      Concat,
+func ServerNew() *Server {
+	return &Server{Commands: make([]Command, 0), End: make(chan bool), KeyFile: "server.key", CertFile: "server.crt"}
 }
 
 func writer_i64_sleb(inValue int64, w *bufio.Writer) {
@@ -258,8 +236,7 @@ func dynamicInvoke(function interface{}, args []interface{}) (result []interface
 	return
 }
 
-func eval_stream(read_stream io.Reader, writer_stream io.Writer) {
-	commands := []Command{AddCommand, SubCommand, ConcatCommand}
+func eval_stream(commands []Command, read_stream io.Reader, writer_stream io.Writer) {
 	reader := bufio.NewReader(read_stream)
 	writer := bufio.NewWriter(writer_stream)
 	stack := Stack{}
