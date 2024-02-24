@@ -65,7 +65,7 @@ func TestReadSLEB64(t *testing.T) {
 	writer.Flush()
 
 	reader := bufio.NewReader(stream)
-	got := read_sleb64(reader)
+	got, _ := read_sleb64(reader)
 	want := int64(42)
 
 	if got != want {
@@ -95,7 +95,7 @@ func TestEvalStream(t *testing.T) {
 
 	buf2 := bufio.NewReader(&b2)
 	buf2.ReadByte()
-	result := read_sleb64(buf2)
+	result, _ := read_sleb64(buf2)
 
 	if result != 222333 {
 		t.Errorf("eval_stream was incorrect, got: %d, want: %d.", result, 222333)
@@ -170,6 +170,14 @@ func load_test_err_call2(writer *bufio.Writer) {
 	writer.WriteByte(byte(Op_Call))
 	writer.Flush()
 }
+func load_test_err_call3(writer *bufio.Writer) {
+	writer.WriteByte(byte(Op_Ld))
+	write_to_stream(int64(55), writer)
+	writer.WriteByte(byte(Op_Call))
+	writer.WriteByte(byte(0))
+
+	writer.Flush()
+}
 
 func TestEvalStream3(t *testing.T) {
 
@@ -182,7 +190,8 @@ func TestEvalStream3(t *testing.T) {
 		{name: "SubTest", function: load_test_sub, want: int64(70)},
 		{name: "ConcatTest", function: load_test_concat_call, want: "123456"},
 		{name: "ErrCall", function: load_test_error_call, want: fmt.Errorf("reflect: Call using string as type int64")},
-		{name: "ErrCall2", function: load_test_err_call2, want: fmt.Errorf("stack exhausted")},
+		{name: "ErrCall2", function: load_test_err_call2, want: fmt.Errorf("cannot read type: Unknown Type: 50")},
+		{name: "ErrCall3", function: load_test_err_call3, want: fmt.Errorf("stack exhausted")},
 	}
 	for _, tc := range testCases {
 		fmt.Printf("test case: %s\n", tc.name)
@@ -196,7 +205,7 @@ func TestEvalStream3(t *testing.T) {
 		writer2.Flush()
 
 		buf2 := bufio.NewReader(&b2)
-		result := read_from_stream(buf2)
+		result, _ := read_from_stream(buf2)
 		if err2, ok := tc.want.(error); ok {
 			if err_result, ok2 := result.(error); ok2 {
 				if err2.Error() != err_result.Error() {
@@ -233,7 +242,7 @@ func TestThroughQuic(t *testing.T) {
 	w.WriteByte(byte(Op_Return))
 	w.Flush()
 
-	result := read_from_stream(r)
+	result, _ := read_from_stream(r)
 	if err != nil {
 		t.Error(err.Error())
 	}

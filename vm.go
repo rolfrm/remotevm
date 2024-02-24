@@ -122,7 +122,7 @@ func writer_i64_sleb(inValue int64, w *bufio.Writer) {
 	}
 }
 
-func read_sleb64(s *bufio.Reader) int64 {
+func read_sleb64(s *bufio.Reader) (int64, error) {
 	var value int64 = 0
 	var shift uint32 = 0
 	var chunk byte
@@ -132,7 +132,7 @@ func read_sleb64(s *bufio.Reader) int64 {
 		chunk, err = s.ReadByte()
 
 		if err != nil {
-			panic(err.Error())
+			return 0, err
 		}
 		value |= int64(chunk&0x7f) << shift
 		shift += 7
@@ -145,7 +145,7 @@ func read_sleb64(s *bufio.Reader) int64 {
 		value |= int64(uint64(^uint64(0)) << shift)
 	}
 
-	return value
+	return value, nil
 }
 
 func write_to_stream(value interface{}, writer *bufio.Writer) {
@@ -187,35 +187,43 @@ func write_to_stream(value interface{}, writer *bufio.Writer) {
 	}
 }
 
-func read_from_stream(reader *bufio.Reader) interface{} {
+func read_from_stream(reader *bufio.Reader) (interface{}, error) {
 	t, e := reader.ReadByte()
 	if e != nil {
-		panic(e.Error())
+		return nil, e
 	}
 	t2 := Type(t)
 	switch t2 {
 	case Type_I64:
-		v := read_sleb64(reader)
-		return v
+		return read_sleb64(reader)
+
 	case Type_String:
-		count := int(read_sleb64(reader))
+		count0, e := read_sleb64(reader)
+		if e != nil {
+			return nil, e
+		}
+		count := int(count0)
 		arr := make([]byte, count)
-		cnt, err := reader.Read(arr)
+		readCnt, err := reader.Read(arr)
 		if err != nil {
-			panic(err.Error())
+			return nil, err
 		}
-		if cnt != count {
-			panic("unable to read expected number of bytes")
+		if count != readCnt {
+			return nil, fmt.Errorf("unable to read expected number of bytes")
 		}
-		return string(arr)
+		return string(arr), nil
 	case Type_Error:
-		str, e := read_from_stream(reader).(string)
-		if !e {
-			panic("unexpected type")
+		str, e := read_from_stream(reader)
+		if e != nil {
+			return nil, e
 		}
-		return fmt.Errorf(str)
+		if str2, ok := str.(string); ok {
+			return fmt.Errorf(str2), nil
+		}
+		return nil, fmt.Errorf("unexpected object read")
+
 	}
-	panic(fmt.Sprintf("cannot read type: %v", t2))
+	return nil, fmt.Errorf("cannot read type: %v", t2)
 }
 
 func dynamicInvoke(function interface{}, args []interface{}) (result []interface{}, err error) {
@@ -270,23 +278,42 @@ func eval_stream(read_stream io.Reader, writer_stream io.Writer) {
 			write_to_stream(val, writer)
 			writer.Flush()
 		case Op_Ld_i64:
-			op := read_sleb64(reader)
+			op, err := read_sleb64(reader)
+			if err != nil {
+				write_to_stream(err, writer)
+				writer.Flush()
+				return
+			}
 			stack.Push(op)
 		case Op_Ld:
-			op := read_from_stream(reader)
+			op, err := read_from_stream(reader)
+			if err != nil {
+				write_to_stream(err, writer)
+				writer.Flush()
+				return
+			}
 			stack.Push(op)
 		case Op_Dup:
 			stack.Push(stack.Peek())
 		case Op_Pop:
 			stack.Pop()
 		case Op_Call:
-			op := read_sleb64(reader)
+			op, err := read_sleb64(reader)
+			if err != nil {
+				write_to_stream(err, writer)
+				writer.Flush()
+				return
+			}
 			if len(commands) < int(op) {
 				write_to_stream(fmt.Errorf("no such opcode: %v", op), writer)
 				return
 			}
 			cmd := commands[op]
 			arglen := len(cmd.Arguments)
+			if arglen > len(stack.items) {
+				write_to_stream(fmt.Errorf("stack exhausted"), writer)
+				return
+			}
 			args := make([]interface{}, arglen)
 			for i := 0; i < arglen; i++ {
 				args[i] = stack.Pop()
