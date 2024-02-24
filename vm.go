@@ -423,8 +423,23 @@ type Client struct {
 	con quic.Connection
 }
 
-func (cli *Client) OpenStream() (quic.Stream, error) {
-	return cli.con.OpenStream()
+type ClientStream struct {
+	Stream    quic.Stream
+	outBuffer *bufio.Writer
+}
+
+func (str *ClientStream) Write(args ...interface{}) {
+	for _, v := range args {
+		write_to_stream(v, str.outBuffer)
+	}
+}
+
+func (cli *Client) OpenStream() (*ClientStream, error) {
+	str, e := cli.con.OpenStream()
+	if e != nil {
+		return nil, e
+	}
+	return &ClientStream{Stream: str}, nil
 }
 
 func NewClient(addr string) Client {
