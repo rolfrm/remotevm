@@ -2,13 +2,13 @@ package remotevm
 
 import (
 	"bufio"
+	"context"
 	"crypto/tls"
 	"encoding/binary"
 	"fmt"
 	"io"
 	"math"
 	"reflect"
-	"time"
 
 	"github.com/quic-go/quic-go"
 )
@@ -72,10 +72,11 @@ func (t Type) String() string {
 }
 
 type Command struct {
-	id        int64
-	Name      string
-	Arguments []Type
-	Func      interface{}
+	id           int64
+	Name         string
+	Arguments    []Type
+	Func         interface{}
+	NeedsContext bool
 }
 
 type Server struct {
@@ -249,7 +250,7 @@ func read_from_stream(reader *bufio.Reader) (interface{}, error) {
 	return nil, fmt.Errorf("cannot read type: %v", t2)
 }
 
-func dynamicInvoke(function interface{}, args []interface{}) (result []interface{}, err error) {
+func dynamicInvoke(function interface{}, args []interface{}, stk *Stack) (err error) {
 	defer func() {
 		if err2 := recover(); err2 != nil {
 			err = fmt.Errorf("%v", err2)
@@ -265,9 +266,9 @@ func dynamicInvoke(function interface{}, args []interface{}) (result []interface
 	}
 
 	// Prepare the arguments
-	var inputValues []reflect.Value
-	for _, arg := range args {
-		inputValues = append(inputValues, reflect.ValueOf(arg))
+	inputValues := make([]reflect.Value, len(args))
+	for i, arg := range args {
+		inputValues[i] = reflect.ValueOf(arg)
 	}
 
 	// Call the function with the provided arguments
@@ -275,20 +276,20 @@ func dynamicInvoke(function interface{}, args []interface{}) (result []interface
 
 	// Convert the result values to a slice of interfaces
 	for _, val := range resultValues {
-		result = append(result, val.Interface())
+		stk.Push(val.Interface())
 	}
 
 	return
 }
 
-func eval_stream(commands []Command, read_stream io.Reader, writer_stream io.Writer) {
+func evalStream(commands []Command, read_stream io.Reader, writer_stream io.Writer) {
 	reader := bufio.NewReader(read_stream)
 	writer := bufio.NewWriter(writer_stream)
 	stack := Stack{}
+	ctx := StreamContext{stack: stack}
 	for {
 		b, e := reader.ReadByte()
 		if e != nil {
-
 			break
 		}
 
@@ -336,20 +337,26 @@ func eval_stream(commands []Command, read_stream io.Reader, writer_stream io.Wri
 				write_to_stream(fmt.Errorf("stack exhausted"), writer)
 				return
 			}
+			argoffset := 0
+			if cmd.NeedsContext {
+				arglen += 1
+				argoffset += 1
+			}
 			args := make([]interface{}, arglen)
-			for i := 0; i < arglen; i++ {
+
+			for i := argoffset; i < arglen; i++ {
 				args[i] = stack.Pop()
 			}
+			if cmd.NeedsContext {
+				args[0] = &ctx
+			}
 
-			result, e := dynamicInvoke(cmd.Func, args)
+			e := dynamicInvoke(cmd.Func, args, &stack)
 			if e != nil {
 				write_to_stream(e, writer)
-				break
+				return
 			}
-			for x := range result {
-				stack.Push(result[x])
 
-			}
 		case Op_Forward:
 			write_to_stream(fmt.Errorf("not implemented"), writer)
 		}
@@ -358,34 +365,16 @@ func eval_stream(commands []Command, read_stream io.Reader, writer_stream io.Wri
 
 }
 
-type emptyCtx struct{}
-
-func (emptyCtx) Deadline() (deadline time.Time, ok bool) {
-	return
-}
-
-func (emptyCtx) Done() <-chan struct{} {
-	return nil
-}
-
-func (emptyCtx) Err() error {
-	return nil
-}
-
-func (emptyCtx) Value(key any) any {
-	return nil
-}
-
-func (s *Server) go_con_quic(con quic.Connection) {
+func (s *Server) goOnQuic(con quic.Connection) {
 	fmt.Println("Got connection to client!")
 	str, err := con.AcceptStream(con.Context())
 	if err != nil {
 		panic(err.Error())
 	}
-	eval_stream(s.Commands, str, str)
+	evalStream(s.Commands, str, str)
 }
 
-func (s *Server) Serve() {
+func (s *Server) Serve() error {
 	keyFile := s.KeyFile
 	certFile := s.CertFile
 	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
@@ -396,8 +385,7 @@ func (s *Server) Serve() {
 
 	listener, err := quic.ListenAddr(s.Address, &tlscfg, nil)
 	if err != nil {
-		panic(err.Error())
-		return
+		return err
 	}
 
 	defer listener.Close()
@@ -405,18 +393,21 @@ func (s *Server) Serve() {
 		<-s.End
 		listener.Close()
 	}()
-	x := emptyCtx{}
+
 	for {
 		fmt.Println("Listening for connection")
-		con, err := listener.Accept(&x)
+		con, err := listener.Accept(context.TODO())
 		if err != nil {
-			panic(err.Error())
+			return err
 		}
 		fmt.Println("Got connection")
-		go s.go_con_quic(con)
+		go s.goOnQuic(con)
 
 	}
+}
 
+type StreamContext struct {
+	stack Stack
 }
 
 type Client struct {
@@ -448,6 +439,10 @@ func (str *ClientStream) Read() (interface{}, error) {
 	return read_from_stream(str.inBuffer)
 }
 
+func (str *ClientStream) Close() error {
+	return str.Stream.Close()
+}
+
 func (cli *Client) OpenStream() (*ClientStream, error) {
 	str, e := cli.con.OpenStream()
 
@@ -456,14 +451,20 @@ func (cli *Client) OpenStream() (*ClientStream, error) {
 	}
 	return &ClientStream{Stream: str, outBuffer: bufio.NewWriter(str), inBuffer: bufio.NewReader(str)}, nil
 }
+func (cli *Client) AcceptStream() (*ClientStream, error) {
+	str, e := cli.con.AcceptStream(context.TODO())
+	if e != nil {
+		return nil, e
+	}
+	return &ClientStream{Stream: str, outBuffer: bufio.NewWriter(str), inBuffer: bufio.NewReader(str)}, nil
+}
 
 func NewClient(addr string) Client {
-	ctx := emptyCtx{}
 
 	tlscfg := tls.Config{InsecureSkipVerify: true}
 	quiccfg := quic.Config{}
 
-	con, err := quic.DialAddr(&ctx, addr, &tlscfg, &quiccfg)
+	con, err := quic.DialAddr(context.TODO(), addr, &tlscfg, &quiccfg)
 
 	if err != nil {
 		panic(err.Error())

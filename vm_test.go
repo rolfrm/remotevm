@@ -37,15 +37,16 @@ var SubCommand = Command{
 	Func:      Sub,
 }
 
-func Concat(a string, b string) string {
+func Concat(context *StreamContext, a string, b string) string {
 	return fmt.Sprintf("%s%s", a, b)
 }
 
 var ConcatCommand = Command{
-	id:        2,
-	Name:      "..",
-	Arguments: []Type{Type_String, Type_String},
-	Func:      Concat,
+	id:           2,
+	Name:         "..",
+	Arguments:    []Type{Type_String, Type_String},
+	Func:         Concat,
+	NeedsContext: true,
 }
 
 var commands []Command = []Command{AddCommand, SubCommand, ConcatCommand}
@@ -123,7 +124,7 @@ func TestEvalStream(t *testing.T) {
 	writer.WriteByte(byte(Op_Return))
 	writer.Flush()
 
-	eval_stream(commands, &b, writer2)
+	evalStream(commands, &b, writer2)
 	writer2.Flush()
 
 	// Now the buffer should contain the returned value
@@ -149,7 +150,7 @@ func TestEvalStream2(t *testing.T) {
 	writer.WriteByte(byte(Op_Return))
 	writer.Flush()
 
-	eval_stream(commands, &b, writer2)
+	evalStream(commands, &b, writer2)
 	writer2.Flush()
 	fmt.Printf(" >>  %v", b2.Bytes())
 
@@ -210,7 +211,11 @@ func load_test_err_call3(writer *bufio.Writer) {
 	write_to_stream(int64(55), writer)
 	writer.WriteByte(byte(Op_Call))
 	writer.WriteByte(byte(0))
-
+	writer.Flush()
+}
+func load_test_err_call4(writer *bufio.Writer) {
+	writer.WriteByte(byte(Op_Call))
+	writer.WriteByte(byte(len(commands)))
 	writer.Flush()
 }
 func load_test_write_read_bytes(thing interface{}, writer *bufio.Writer) {
@@ -241,6 +246,7 @@ func TestEvalStream3(t *testing.T) {
 		{name: "ErrCall", function: load_test_error_call, want: fmt.Errorf("reflect: Call using string as type int64")},
 		{name: "ErrCall2", function: load_test_err_call2, want: fmt.Errorf("cannot read type: Unknown Type: 50")},
 		{name: "ErrCall3", function: load_test_err_call3, want: fmt.Errorf("stack exhausted")},
+		{name: "ErrCall4", function: load_test_err_call4, want: fmt.Errorf("no such opcode: 3")},
 	}
 	for _, tc := range testCases {
 		fmt.Printf("test case: %s\n", tc.name)
@@ -250,7 +256,7 @@ func TestEvalStream3(t *testing.T) {
 		writer := bufio.NewWriter(&b)
 		writer2 := bufio.NewWriter(&b2)
 		tc.function(writer)
-		eval_stream(commands, &b, writer2)
+		evalStream(commands, &b, writer2)
 		writer2.Flush()
 
 		buf2 := bufio.NewReader(&b2)
