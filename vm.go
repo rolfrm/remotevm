@@ -326,7 +326,7 @@ func eval_stream(commands []Command, read_stream io.Reader, writer_stream io.Wri
 				writer.Flush()
 				return
 			}
-			if len(commands) < int(op) {
+			if len(commands) <= int(op) {
 				write_to_stream(fmt.Errorf("no such opcode: %v", op), writer)
 				return
 			}
