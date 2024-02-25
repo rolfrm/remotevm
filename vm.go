@@ -430,16 +430,26 @@ type ClientStream struct {
 
 func (str *ClientStream) Write(args ...interface{}) {
 	for _, v := range args {
-		write_to_stream(v, str.outBuffer)
+		switch obj := v.(type) {
+		case OpCode:
+			str.outBuffer.WriteByte(byte(obj))
+		case byte:
+			str.outBuffer.WriteByte(obj)
+		default:
+			write_to_stream(v, str.outBuffer)
+		}
+
 	}
+	str.outBuffer.Flush()
 }
 
 func (cli *Client) OpenStream() (*ClientStream, error) {
 	str, e := cli.con.OpenStream()
+
 	if e != nil {
 		return nil, e
 	}
-	return &ClientStream{Stream: str}, nil
+	return &ClientStream{Stream: str, outBuffer: bufio.NewWriter(str)}, nil
 }
 
 func NewClient(addr string) Client {

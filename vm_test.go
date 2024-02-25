@@ -278,15 +278,8 @@ func TestThroughQuic(t *testing.T) {
 	if err != nil {
 		t.Error(err.Error())
 	}
-	w := bufio.NewWriter(str.Stream)
 	r := bufio.NewReader(str.Stream)
-	w.WriteByte(byte(Op_Ld_i64))
-	writer_i64_sleb(112233, w)
-	w.WriteByte(byte(Op_Dup))
-	w.WriteByte(byte(Op_Call))
-	w.WriteByte(byte(0))
-	w.WriteByte(byte(Op_Return))
-	w.Flush()
+	str.Write(Op_Ld, int64(112233), Op_Dup, Op_Call, byte(0), Op_Return)
 
 	result, _ := read_from_stream(r)
 	if err != nil {
