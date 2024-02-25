@@ -278,10 +278,9 @@ func TestThroughQuic(t *testing.T) {
 	if err != nil {
 		t.Error(err.Error())
 	}
-	r := bufio.NewReader(str.Stream)
 	str.Write(Op_Ld, int64(112233), Op_Dup, Op_Call, byte(0), Op_Return)
 
-	result, _ := read_from_stream(r)
+	result, err := str.Read()
 	if err != nil {
 		t.Error(err.Error())
 	}

@@ -426,6 +426,7 @@ type Client struct {
 type ClientStream struct {
 	Stream    quic.Stream
 	outBuffer *bufio.Writer
+	inBuffer  *bufio.Reader
 }
 
 func (str *ClientStream) Write(args ...interface{}) {
@@ -443,13 +444,17 @@ func (str *ClientStream) Write(args ...interface{}) {
 	str.outBuffer.Flush()
 }
 
+func (str *ClientStream) Read() (interface{}, error) {
+	return read_from_stream(str.inBuffer)
+}
+
 func (cli *Client) OpenStream() (*ClientStream, error) {
 	str, e := cli.con.OpenStream()
 
 	if e != nil {
 		return nil, e
 	}
-	return &ClientStream{Stream: str, outBuffer: bufio.NewWriter(str)}, nil
+	return &ClientStream{Stream: str, outBuffer: bufio.NewWriter(str), inBuffer: bufio.NewReader(str)}, nil
 }
 
 func NewClient(addr string) Client {
