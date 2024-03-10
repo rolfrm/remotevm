@@ -83,7 +83,7 @@ func TestWriteToStream(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var buf bytes.Buffer
 			writer := bufio.NewWriter(&buf)
-			write_to_stream(tc.value, writer)
+			writeToStream(tc.value, writer)
 			writer.Flush()
 
 			got := buf.Bytes()
@@ -124,7 +124,7 @@ func TestEvalStream(t *testing.T) {
 	writer.WriteByte(byte(Op_Return))
 	writer.Flush()
 
-	evalStream(commands, &b, writer2)
+	EvalStream(commands, &b, writer2)
 	writer2.Flush()
 
 	// Now the buffer should contain the returned value
@@ -150,7 +150,7 @@ func TestEvalStream2(t *testing.T) {
 	writer.WriteByte(byte(Op_Return))
 	writer.Flush()
 
-	evalStream(commands, &b, writer2)
+	EvalStream(commands, &b, writer2)
 	writer2.Flush()
 	fmt.Printf(" >>  %v", b2.Bytes())
 
@@ -181,9 +181,9 @@ func load_test_sub(writer *bufio.Writer) {
 }
 func load_test_concat_call(writer *bufio.Writer) {
 	writer.WriteByte(byte(Op_Ld))
-	write_to_stream("456", writer)
+	writeToStream("456", writer)
 	writer.WriteByte(byte(Op_Ld))
-	write_to_stream("123", writer)
+	writeToStream("123", writer)
 	writer.WriteByte(byte(Op_Call))
 	writer.WriteByte(2)
 	writer.WriteByte(byte(Op_Return))
@@ -191,9 +191,9 @@ func load_test_concat_call(writer *bufio.Writer) {
 }
 func load_test_error_call(writer *bufio.Writer) {
 	writer.WriteByte(byte(Op_Ld))
-	write_to_stream("456", writer)
+	writeToStream("456", writer)
 	writer.WriteByte(byte(Op_Ld))
-	write_to_stream("123", writer)
+	writeToStream("123", writer)
 
 	writer.WriteByte(byte(Op_Call))
 	writer.WriteByte(0)
@@ -208,7 +208,7 @@ func load_test_err_call2(writer *bufio.Writer) {
 }
 func load_test_err_call3(writer *bufio.Writer) {
 	writer.WriteByte(byte(Op_Ld))
-	write_to_stream(int64(55), writer)
+	writeToStream(int64(55), writer)
 	writer.WriteByte(byte(Op_Call))
 	writer.WriteByte(byte(0))
 	writer.Flush()
@@ -220,7 +220,7 @@ func load_test_err_call4(writer *bufio.Writer) {
 }
 func load_test_write_read_bytes(thing interface{}, writer *bufio.Writer) {
 	writer.WriteByte(byte(Op_Ld))
-	write_to_stream(thing, writer)
+	writeToStream(thing, writer)
 	writer.WriteByte(byte(Op_Return))
 	writer.Flush()
 }
@@ -256,11 +256,11 @@ func TestEvalStream3(t *testing.T) {
 		writer := bufio.NewWriter(&b)
 		writer2 := bufio.NewWriter(&b2)
 		tc.function(writer)
-		evalStream(commands, &b, writer2)
+		EvalStream(commands, &b, writer2)
 		writer2.Flush()
 
 		buf2 := bufio.NewReader(&b2)
-		result, _ := read_from_stream(buf2)
+		result, _ := readFromStream(buf2)
 
 		wantString := fmt.Sprintf("%v", tc.want)
 		resultString := fmt.Sprintf("%v", result)

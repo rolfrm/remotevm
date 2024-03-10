@@ -134,19 +134,19 @@ func read_sleb64(s *bufio.Reader) (int64, error) {
 	return value, nil
 }
 
-func write_to_stream(value interface{}, writer *bufio.Writer) {
+func writeToStream(value interface{}, writer *bufio.Writer) {
 
 	switch obj := value.(type) {
 	case Command:
 		writer.WriteByte(byte(Type_Command))
-		write_to_stream(obj.id, writer)
-		write_to_stream(obj.Name, writer)
-		write_to_stream(obj.Arguments, writer)
+		writeToStream(obj.id, writer)
+		writeToStream(obj.Name, writer)
+		writeToStream(obj.Arguments, writer)
 	case []Command:
 		writer.WriteByte(byte(Type_Command_Array))
 		writer_i64_sleb(int64(len(obj)), writer)
 		for i := range obj {
-			write_to_stream(obj[i], writer)
+			writeToStream(obj[i], writer)
 		}
 	case string:
 		writer.WriteByte(byte(Type_String))
@@ -170,7 +170,7 @@ func write_to_stream(value interface{}, writer *bufio.Writer) {
 		}
 	case error:
 		writer.WriteByte(byte(Type_Error))
-		write_to_stream(obj.Error(), writer)
+		writeToStream(obj.Error(), writer)
 	case nil:
 		writer.WriteByte(byte(Type_Nothing))
 	case []byte:
@@ -183,7 +183,7 @@ func write_to_stream(value interface{}, writer *bufio.Writer) {
 	}
 }
 
-func read_from_stream(reader *bufio.Reader) (interface{}, error) {
+func readFromStream(reader *bufio.Reader) (interface{}, error) {
 	t, e := reader.ReadByte()
 	if e != nil {
 		return nil, e
@@ -237,7 +237,7 @@ func read_from_stream(reader *bufio.Reader) (interface{}, error) {
 		}
 		return string(arr), nil
 	case Type_Error:
-		str, e := read_from_stream(reader)
+		str, e := readFromStream(reader)
 		if e != nil {
 			return nil, e
 		}
@@ -282,7 +282,7 @@ func dynamicInvoke(function interface{}, args []interface{}, stk *Stack) (err er
 	return
 }
 
-func evalStream(commands []Command, read_stream io.Reader, writer_stream io.Writer) {
+func EvalStream(commands []Command, read_stream io.Reader, writer_stream io.Writer) {
 	reader := bufio.NewReader(read_stream)
 	writer := bufio.NewWriter(writer_stream)
 	stack := Stack{}
@@ -298,20 +298,20 @@ func evalStream(commands []Command, read_stream io.Reader, writer_stream io.Writ
 			stack.Push(commands)
 		case Op_Return:
 			val := stack.Pop()
-			write_to_stream(val, writer)
+			writeToStream(val, writer)
 			writer.Flush()
 		case Op_Ld_i64:
 			op, err := read_sleb64(reader)
 			if err != nil {
-				write_to_stream(err, writer)
+				writeToStream(err, writer)
 				writer.Flush()
 				return
 			}
 			stack.Push(op)
 		case Op_Ld:
-			op, err := read_from_stream(reader)
+			op, err := readFromStream(reader)
 			if err != nil {
-				write_to_stream(err, writer)
+				writeToStream(err, writer)
 				writer.Flush()
 				return
 			}
@@ -323,18 +323,18 @@ func evalStream(commands []Command, read_stream io.Reader, writer_stream io.Writ
 		case Op_Call:
 			op, err := read_sleb64(reader)
 			if err != nil {
-				write_to_stream(err, writer)
+				writeToStream(err, writer)
 				writer.Flush()
 				return
 			}
 			if len(commands) <= int(op) {
-				write_to_stream(fmt.Errorf("no such opcode: %v", op), writer)
+				writeToStream(fmt.Errorf("no such opcode: %v", op), writer)
 				return
 			}
 			cmd := commands[op]
 			arglen := len(cmd.Arguments)
 			if arglen > len(stack.items) {
-				write_to_stream(fmt.Errorf("stack exhausted"), writer)
+				writeToStream(fmt.Errorf("stack exhausted"), writer)
 				return
 			}
 			argoffset := 0
@@ -353,12 +353,12 @@ func evalStream(commands []Command, read_stream io.Reader, writer_stream io.Writ
 
 			e := dynamicInvoke(cmd.Func, args, &stack)
 			if e != nil {
-				write_to_stream(e, writer)
+				writeToStream(e, writer)
 				return
 			}
 
 		case Op_Forward:
-			write_to_stream(fmt.Errorf("not implemented"), writer)
+			writeToStream(fmt.Errorf("not implemented"), writer)
 		}
 
 	}
@@ -371,7 +371,7 @@ func (s *Server) goOnQuic(con quic.Connection) {
 	if err != nil {
 		panic(err.Error())
 	}
-	evalStream(s.Commands, str, str)
+	EvalStream(s.Commands, str, str)
 }
 
 func (s *Server) Serve() error {
@@ -414,13 +414,15 @@ type Client struct {
 	con quic.Connection
 }
 
-type ClientStream struct {
-	Stream    quic.Stream
+type CodeStream struct {
+	Stream    io.Writer
 	outBuffer *bufio.Writer
-	inBuffer  *bufio.Reader
 }
 
-func (str *ClientStream) Write(args ...interface{}) {
+func (str *CodeStream) Write(args ...interface{}) {
+	if str.outBuffer == nil {
+		str.outBuffer = bufio.NewWriter(str.Stream)
+	}
 	for _, v := range args {
 		switch obj := v.(type) {
 		case OpCode:
@@ -428,15 +430,24 @@ func (str *ClientStream) Write(args ...interface{}) {
 		case byte:
 			str.outBuffer.WriteByte(obj)
 		default:
-			write_to_stream(v, str.outBuffer)
+			writeToStream(v, str.outBuffer)
 		}
-
 	}
 	str.outBuffer.Flush()
 }
 
+type ClientStream struct {
+	Stream    quic.Stream
+	outStream CodeStream
+	inBuffer  *bufio.Reader
+}
+
+func (str *ClientStream) Write(args ...interface{}) {
+	str.outStream.Write(args...)
+}
+
 func (str *ClientStream) Read() (interface{}, error) {
-	return read_from_stream(str.inBuffer)
+	return readFromStream(str.inBuffer)
 }
 
 func (str *ClientStream) Close() error {
@@ -449,14 +460,14 @@ func (cli *Client) OpenStream() (*ClientStream, error) {
 	if e != nil {
 		return nil, e
 	}
-	return &ClientStream{Stream: str, outBuffer: bufio.NewWriter(str), inBuffer: bufio.NewReader(str)}, nil
+	return &ClientStream{Stream: str, outStream: CodeStream{Stream: str}, inBuffer: bufio.NewReader(str)}, nil
 }
 func (cli *Client) AcceptStream() (*ClientStream, error) {
 	str, e := cli.con.AcceptStream(context.TODO())
 	if e != nil {
 		return nil, e
 	}
-	return &ClientStream{Stream: str, outBuffer: bufio.NewWriter(str), inBuffer: bufio.NewReader(str)}, nil
+	return &ClientStream{Stream: str, outStream: CodeStream{Stream: str}, inBuffer: bufio.NewReader(str)}, nil
 }
 
 func NewClient(addr string) Client {
