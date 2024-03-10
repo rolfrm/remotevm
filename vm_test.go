@@ -20,7 +20,7 @@ func Add(a int64, b int64) int64 {
 }
 
 var AddCommand = Command{
-	id:        0,
+	Id:        0,
 	Name:      "+",
 	Arguments: []Type{Type_I64, Type_I64},
 	Func:      Add,
@@ -31,7 +31,7 @@ func Sub(a int64, b int64) int64 {
 }
 
 var SubCommand = Command{
-	id:        1,
+	Id:        1,
 	Name:      "-",
 	Arguments: []Type{Type_I64, Type_I64},
 	Func:      Sub,
@@ -42,7 +42,7 @@ func Concat(context *StreamContext, a string, b string) string {
 }
 
 var ConcatCommand = Command{
-	id:           2,
+	Id:           2,
 	Name:         "..",
 	Arguments:    []Type{Type_String, Type_String},
 	Func:         Concat,

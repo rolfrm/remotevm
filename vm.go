@@ -72,7 +72,7 @@ func (t Type) String() string {
 }
 
 type Command struct {
-	id           int64
+	Id           int64
 	Name         string
 	Arguments    []Type
 	Func         interface{}
@@ -139,7 +139,7 @@ func writeToStream(value interface{}, writer *bufio.Writer) {
 	switch obj := value.(type) {
 	case Command:
 		writer.WriteByte(byte(Type_Command))
-		writeToStream(obj.id, writer)
+		writeToStream(obj.Id, writer)
 		writeToStream(obj.Name, writer)
 		writeToStream(obj.Arguments, writer)
 	case []Command:
@@ -282,9 +282,9 @@ func dynamicInvoke(function interface{}, args []interface{}, stk *Stack) (err er
 	return
 }
 
-func EvalStream(commands []Command, read_stream io.Reader, writer_stream io.Writer) {
-	reader := bufio.NewReader(read_stream)
-	writer := bufio.NewWriter(writer_stream)
+func EvalStream(commands []Command, readStream io.Reader, writeStream io.Writer) {
+	reader := bufio.NewReader(readStream)
+	writer := bufio.NewWriter(writeStream)
 	stack := Stack{}
 	ctx := StreamContext{stack: stack}
 	for {
